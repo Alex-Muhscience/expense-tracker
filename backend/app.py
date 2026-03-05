@@ -27,16 +27,30 @@ if os.getenv('USE_MYSQL'):
     # MySQL configuration for production
     app.config['SQLALCHEMY_DATABASE_URI'] = (
         f"mysql+pymysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@"
-        f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT', '3306')}/{os.getenv('DB_NAME')}?charset=utf8mb4"
+        f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT', '3306')}/{os.getenv('DB_NAME')}?"
+        f"charset=utf8mb4"
     )
 else:
-    # SQLite for local development
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///expense.db'
+    # SQLite configuration for local development
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///expense_tracker.db'
 
-logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-logger.info(f"USE_MYSQL: {os.getenv('USE_MYSQL')}")
-logger.info(f"DB_NAME: {os.getenv('DB_NAME')}")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize extensions
+db = SQLAlchemy(app)
+jwt = JWTManager(app)
+
+# Security headers
+Talisman(app)
+
+# Rate limiting
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+limiter.init_app(app)
+
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
     'pool_recycle': 3600,
@@ -46,6 +60,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 3600  # 1 hour expiration
 
+
 # Initialize extensions
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -53,16 +68,20 @@ limiter = Limiter(key_func=get_remote_address)
 limiter.init_app(app)
 talisman = Talisman(app)
 
+
 # JWT error handlers
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
     logger.error(f"Invalid JWT token: {str(error)}")
     return jsonify({"error": "Invalid token", "details": str(error)}), 401
 
+
+
 @jwt.unauthorized_loader
 def unauthorized_callback(error):
     logger.error(f"Missing JWT token: {str(error)}")
     return jsonify({"error": "Missing token", "details": str(error)}), 401
+
 
 # Models
 class User(db.Model):
@@ -73,6 +92,7 @@ class User(db.Model):
     password = db.Column(db.String(256), nullable=False)
     expenses = db.relationship('Expense', backref='user', lazy=True)
 
+
 class Expense(db.Model):
     __tablename__ = 'expenses'
 
@@ -81,6 +101,7 @@ class Expense(db.Model):
     category = db.Column(db.String(50), nullable=False)
     date = db.Column(db.DateTime, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
 
 class Budget(db.Model):
     __tablename__ = 'budgets'
@@ -94,6 +115,7 @@ class Budget(db.Model):
 
     __table_args__ = (db.UniqueConstraint('user_id', 'category', 'year', 'month', name='unique_user_category_month'),)
 
+
 class Income(db.Model):
     __tablename__ = 'incomes'
 
@@ -103,6 +125,7 @@ class Income(db.Model):
     date = db.Column(db.DateTime, nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
+
 class Category(db.Model):
     __tablename__ = 'categories'
 
@@ -110,6 +133,20 @@ class Category(db.Model):
     name = db.Column(db.String(100), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Recurring(db.Model):
+    __tablename__ = 'recurrings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(50), nullable=False)
+    frequency = db.Column(db.String(20), nullable=False)  # 'monthly', 'weekly', 'yearly'
+    start_date = db.Column(db.Date, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 # Initialize database tables
 with app.app_context():
@@ -125,6 +162,7 @@ with app.app_context():
     except Exception as e:
         logger.error(f"Error creating database tables: {str(e)}")
 
+
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -136,10 +174,12 @@ def health_check():
         logger.error(f"Database health check failed: {str(e)}", exc_info=True)
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
 
+
 # Test endpoint
 @app.route('/api/test', methods=['GET'])
 def test_endpoint():
     return jsonify({"status": "success", "message": "API is working!"})
+
 
 # User registration endpoint
 @limiter.limit("5 per minute")
@@ -182,6 +222,7 @@ def register():
         logger.error(f"Registration error: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
+
 # User login endpoint
 @limiter.limit("5 per minute")
 @app.route('/api/login', methods=['POST', 'OPTIONS'])
@@ -216,6 +257,7 @@ def login():
     except Exception as e:
         logger.error(f"Login error: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
 
 # Expense creation and retrieval endpoint
 @app.route('/api/expenses', methods=['GET', 'POST', 'OPTIONS'])
@@ -696,6 +738,7 @@ def get_categories():
         logger.error(f"Get categories error: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to fetch categories"}), 500
 
+
 @app.route('/api/categories', methods=['POST'])
 @jwt_required()
 def add_category():
@@ -722,6 +765,7 @@ def add_category():
         logger.error(f"Add category error: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to add category"}), 500
 
+
 @app.route('/api/categories/<int:category_id>', methods=['DELETE'])
 @jwt_required()
 def delete_category(category_id):
@@ -738,6 +782,7 @@ def delete_category(category_id):
         db.session.rollback()
         logger.error(f"Delete category error: {str(e)}", exc_info=True)
         return jsonify({"error": "Failed to delete category"}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
