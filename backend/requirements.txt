@@ -1,0 +1,13 @@
+flask
+flask-sqlalchemy
+flask-jwt-extended
+flask-cors
+gunicorn
+python-dotenv
+pymysql
+cryptography
+pytest
+pytest-flask
+flake8
+flask-talisman
+flask-limiter

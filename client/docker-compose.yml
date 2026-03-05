@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  db:
+    image: mariadb:10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: expense_tracker
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+
+  backend:
+    build: ../backend
+    ports:
+      - "5000:5000"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: expense_tracker
+      DB_USER: appuser
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    depends_on:
+      - db
+    volumes:
+      - ../backend:/app
+
+volumes:
+  mariadb_data:
